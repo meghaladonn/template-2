@@ -201,9 +201,11 @@ export const DYNAMIC_QUESTIONS: Record<PsychoanalyticTheme, DynamicQuestion[]> =
   ]
 };
 
+type EmotionalTone = 'fear' | 'anger' | 'sadness' | 'desire' | 'confusion';
+
 export function analyzeResponse(response: string): {
-  emotionalTone: 'fear' | 'anger' | 'sadness' | 'desire' | 'confusion';
-  depth: number; // 1-5 scale of how personal/intimate the response is
+  emotionalTone: EmotionalTone;
+  depth: number;
   keywords: string[];
 } {
   const emotionalKeywords = {
@@ -219,16 +221,19 @@ export function analyzeResponse(response: string): {
     response.toLowerCase().includes(keyword.toLowerCase())
   );
 
-  const emotionalTone = Object.entries(emotionalKeywords).reduce((max, [tone, words]) => {
-    const count = words.filter(word => response.toLowerCase().includes(word.toLowerCase())).length;
-    return count > max.count ? { tone: tone as any, count } : max;
-  }, { tone: 'confusion', count: 0 }).tone;
+  const emotionalTone = Object.entries(emotionalKeywords).reduce<{ tone: EmotionalTone; count: number }>(
+    (max, [tone, words]) => {
+      const count = words.filter(word => response.toLowerCase().includes(word.toLowerCase())).length;
+      return count > max.count ? { tone: tone as EmotionalTone, count } : max;
+    },
+    { tone: 'confusion', count: 0 }
+  ).tone;
 
   const depth = Math.min(5, Math.max(1, 
-    (response.length / 100) + // Longer responses tend to be more personal
-    (foundKeywords.length * 0.5) + // More emotional keywords
-    (response.includes('I') ? 1 : 0) + // Personal pronoun usage
-    (response.includes('?') ? 0.5 : 0) // Question marks might indicate uncertainty
+    (response.length / 100) +
+    (foundKeywords.length * 0.5) +
+    (response.includes('I') ? 1 : 0) +
+    (response.includes('?') ? 0.5 : 0)
   ));
 
   return {
@@ -244,12 +249,25 @@ export function generateDiagnosis(
 ): string {
   // Analyze all responses
   const analyses = responses.map(analyzeResponse);
-  const dominantEmotion = Object.entries(
-    analyses.reduce((acc, { emotionalTone }) => {
-      acc[emotionalTone] = (acc[emotionalTone] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>)
-  ).sort((a, b) => b[1] - a[1])[0][0];
+  
+  // Initialize accumulator with all emotional tones set to 0
+  const initialCounts: Record<EmotionalTone, number> = {
+    fear: 0,
+    anger: 0,
+    sadness: 0,
+    desire: 0,
+    confusion: 0
+  };
+  
+  // Count occurrences of each emotional tone
+  const emotionCounts = analyses.reduce((acc, { emotionalTone }) => {
+    acc[emotionalTone] += 1;
+    return acc;
+  }, initialCounts);
+  
+  // Find the dominant emotion
+  const dominantEmotion = Object.entries(emotionCounts)
+    .sort((a, b) => b[1] - a[1])[0][0] as EmotionalTone;
 
   const averageDepth = analyses.reduce((sum, { depth }) => sum + depth, 0) / analyses.length;
   const uniqueKeywords = Array.from(new Set(analyses.flatMap(a => a.keywords)));
