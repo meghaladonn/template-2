@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useChat } from 'ai/react';
 import { Message } from '@/app/components/Message';
 import { ChatInput } from '@/app/components/ChatInput';
 import {
@@ -24,6 +23,12 @@ The deeper you go, the more the questions will find you.
 
 Are you ready to meet what waits in the dark?`;
 
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export default function ChatPage() {
   const [showIntroduction, setShowIntroduction] = useState(true);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -39,25 +44,9 @@ export default function ChatPage() {
   });
   const [finalDiagnosis, setFinalDiagnosis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const {
-    messages,
-    input,
-    handleInputChange,
-    handleSubmit,
-    isLoading,
-    setMessages,
-  } = useChat({
-    api: '/api/chat',
-    body: {
-      currentQuestion: QUESTIONS[currentQuestionIndex],
-      themeResponses,
-    },
-    onError: (error) => {
-      console.error('Chat error:', error);
-      setError('Failed to connect to the psychoanalyst. Please try again.');
-    },
-  });
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const resetChat = () => {
     try {
@@ -73,6 +62,7 @@ export default function ChatPage() {
       setFinalDiagnosis(null);
       setMessages([]);
       setError(null);
+      setInput('');
 
       // Clear localStorage
       localStorage.removeItem('chatMessages');
@@ -109,7 +99,7 @@ export default function ChatPage() {
       console.error('Error loading saved state:', error);
       setError('Failed to load your previous session. Starting a new one.');
     }
-  }, [setMessages]);
+  }, []);
 
   // Save state to localStorage whenever it changes
   useEffect(() => {
@@ -129,11 +119,22 @@ export default function ChatPage() {
     }
   }, [messages, themeResponses, currentQuestionIndex, finalDiagnosis]);
 
-  const handleMessageSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleMessageSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim()) return;
 
     try {
+      setIsLoading(true);
+      setError(null);
+
+      // Add user message
+      const userMessage: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: input,
+      };
+      setMessages((prev) => [...prev, userMessage]);
+
       // Add the current response to the theme tracking
       const currentTheme = QUESTIONS[currentQuestionIndex].theme;
       setThemeResponses((prev) => ({
@@ -169,10 +170,47 @@ export default function ChatPage() {
         setFinalDiagnosis(diagnosis);
       }
 
-      handleSubmit(e);
+      // Send message to API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage],
+          currentQuestion: QUESTIONS[currentQuestionIndex],
+          themeResponses,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.details || 'Failed to get response from psychoanalyst'
+        );
+      }
+
+      const data = await response.json();
+
+      // Add assistant message
+      const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: data.content,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      // Clear input
+      setInput('');
     } catch (error) {
       console.error('Error submitting message:', error);
-      setError('Failed to process your response. Please try again.');
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to process your response. Please try again.'
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -258,7 +296,7 @@ export default function ChatPage() {
         {currentQuestionIndex < QUESTIONS.length && (
           <ChatInput
             input={input}
-            handleInputChange={handleInputChange}
+            handleInputChange={(e) => setInput(e.target.value)}
             handleSubmit={handleMessageSubmit}
             isLoading={isLoading}
           />

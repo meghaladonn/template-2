@@ -66,6 +66,24 @@ export async function POST(req: Request) {
       throw new Error('Invalid messages format');
     }
 
+    // Test the API key with a simple completion first
+    try {
+      const testResponse = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: 'Test' }],
+        max_tokens: 5,
+      });
+      console.log(
+        'API test successful:',
+        testResponse.choices[0]?.message?.content
+      );
+    } catch (testError) {
+      console.error('API test failed:', testError);
+      throw new Error(
+        `API test failed: ${testError instanceof Error ? testError.message : 'Unknown error'}`
+      );
+    }
+
     // If this is the last question, generate a final analysis
     if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
       const lastUserMessage = messages[messages.length - 1].content;
@@ -75,7 +93,6 @@ export async function POST(req: Request) {
 
       const response = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
-        stream: true,
         messages: [
           SYSTEM_MESSAGE,
           ...messages,
@@ -89,22 +106,41 @@ export async function POST(req: Request) {
         max_tokens: 500,
       });
 
-      const stream = OpenAIStream(response as any);
-      return new StreamingTextResponse(stream);
+      return new Response(
+        JSON.stringify({
+          role: 'assistant',
+          content:
+            response.choices[0]?.message?.content || 'No response generated',
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
     }
 
     // For regular responses
     console.log('Generating regular response');
     const response = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
-      stream: true,
       messages: [SYSTEM_MESSAGE, ...messages],
       temperature: 0.7,
       max_tokens: 500,
     });
 
-    const stream = OpenAIStream(response as any);
-    return new StreamingTextResponse(stream);
+    return new Response(
+      JSON.stringify({
+        role: 'assistant',
+        content:
+          response.choices[0]?.message?.content || 'No response generated',
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
   } catch (error) {
     console.error('Error in chat route:', error);
     // Return a more detailed error response
