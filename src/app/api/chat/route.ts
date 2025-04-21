@@ -1,10 +1,19 @@
 import { OpenAIStream, StreamingTextResponse } from 'ai';
 import OpenAI from 'openai';
-import { Question, THEME_DESCRIPTIONS, PsychoanalyticTheme } from '@/app/lib/psychoanalysis';
+import {
+  Question,
+  THEME_DESCRIPTIONS,
+  PsychoanalyticTheme,
+} from '@/app/lib/psychoanalysis';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI client with safe API key handling
+const getOpenAIClient = () => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not set in environment variables');
+  }
+  return new OpenAI({ apiKey });
+};
 
 const SYSTEM_MESSAGE = {
   role: 'system',
@@ -22,22 +31,19 @@ Guidelines:
 9. Be subtly unsettling while maintaining professional boundaries
 10. Focus on discovering the user's unconscious desires and fears
 
-Remember: Your responses should feel like a dream interpretation session, where the ordinary becomes strange and the strange becomes meaningful.`
+Remember: Your responses should feel like a dream interpretation session, where the ordinary becomes strange and the strange becomes meaningful.`,
 };
 
 export async function POST(req: Request) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not set');
-    }
-
+    const openai = getOpenAIClient();
     const { messages, currentQuestion, themeResponses } = await req.json();
-    
+
     // If this is the last question, generate a final analysis
     if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
       const lastUserMessage = messages[messages.length - 1].content;
       const theme = currentQuestion.theme as PsychoanalyticTheme;
-      
+
       const response = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         stream: true,
@@ -47,10 +53,11 @@ export async function POST(req: Request) {
           {
             role: 'system',
             content: `Analyze the user's response in the context of the current theme: ${THEME_DESCRIPTIONS[theme]}. 
-            Provide a cryptic, dreamlike interpretation that connects their response to deeper unconscious patterns.
-            If appropriate, ask the follow-up question: ${currentQuestion.followUp}`
-          }
+            Provide a cryptic, dreamlike interpretation that connects their response to deeper unconscious patterns.`,
+          },
         ],
+        temperature: 0.7,
+        max_tokens: 500,
       });
 
       const stream = OpenAIStream(response as any);
@@ -61,25 +68,18 @@ export async function POST(req: Request) {
     const response = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       stream: true,
-      messages: [
-        SYSTEM_MESSAGE,
-        ...messages,
-      ],
+      messages: [SYSTEM_MESSAGE, ...messages],
+      temperature: 0.7,
+      max_tokens: 500,
     });
 
     const stream = OpenAIStream(response as any);
     return new StreamingTextResponse(stream);
   } catch (error) {
-    console.error('Detailed error:', error);
+    console.error('Error in chat route:', error);
     return new Response(
-      JSON.stringify({ 
-        error: 'Failed to process chat request',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      }), 
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
+      JSON.stringify({ error: 'Failed to process chat request' }),
+      { status: 500 }
     );
   }
-} 
+}
