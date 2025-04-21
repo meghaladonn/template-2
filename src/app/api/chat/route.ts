@@ -9,6 +9,9 @@ import {
 // Initialize OpenAI client with safe API key handling
 const getOpenAIClient = () => {
   const apiKey = process.env.OPENAI_API_KEY;
+  console.log('OpenAI API Key exists:', !!apiKey);
+  console.log('OpenAI API Key length:', apiKey?.length);
+
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not set in environment variables');
   }
@@ -96,6 +99,7 @@ export async function POST(req: Request) {
       JSON.stringify({
         error: 'Failed to process chat request',
         details: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
       }),
       {
         status: 500,
