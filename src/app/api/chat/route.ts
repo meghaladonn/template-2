@@ -8,14 +8,27 @@ import {
 
 // Initialize OpenAI client with safe API key handling
 const getOpenAIClient = () => {
-  const apiKey = process.env.OPENAI_API_KEY;
-  console.log('OpenAI API Key exists:', !!apiKey);
-  console.log('OpenAI API Key length:', apiKey?.length);
+  try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    console.log('OpenAI API Key exists:', !!apiKey);
+    console.log('OpenAI API Key length:', apiKey?.length);
 
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not set in environment variables');
+    if (!apiKey) {
+      console.error('OPENAI_API_KEY is not set in environment variables');
+      throw new Error('OPENAI_API_KEY is not set in environment variables');
+    }
+
+    if (!apiKey.startsWith('sk-')) {
+      console.error('OPENAI_API_KEY does not start with sk-');
+      throw new Error('Invalid OpenAI API key format');
+    }
+
+    const client = new OpenAI({ apiKey });
+    return client;
+  } catch (error) {
+    console.error('Error initializing OpenAI client:', error);
+    throw error;
   }
-  return new OpenAI({ apiKey });
 };
 
 const SYSTEM_MESSAGE = {
