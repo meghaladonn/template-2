@@ -4,7 +4,14 @@ import { useState, useEffect } from 'react';
 import { useChat } from 'ai/react';
 import { Message } from '@/app/components/Message';
 import { ChatInput } from '@/app/components/ChatInput';
-import { PsychoanalyticTheme, Question, QUESTIONS, THEME_DESCRIPTIONS, generateDiagnosis, getNextQuestion } from '@/app/lib/psychoanalysis';
+import {
+  PsychoanalyticTheme,
+  Question,
+  QUESTIONS,
+  THEME_DESCRIPTIONS,
+  generateDiagnosis,
+  getNextQuestion,
+} from '@/app/lib/psychoanalysis';
 
 const INTRODUCTION = `Welcome to the chamber of echoes, where the walls whisper in forgotten tongues. 
 Here, we do not ask questions—we listen to the silence between your words. 
@@ -21,41 +28,61 @@ export default function ChatPage() {
   const [showIntroduction, setShowIntroduction] = useState(true);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [questions, setQuestions] = useState<Question[]>(QUESTIONS);
-  const [themeResponses, setThemeResponses] = useState<Record<PsychoanalyticTheme, string[]>>({
+  const [themeResponses, setThemeResponses] = useState<
+    Record<PsychoanalyticTheme, string[]>
+  >({
     repression: [],
     deathDrive: [],
     mirrorStage: [],
     uncanny: [],
-    fragmentation: []
+    fragmentation: [],
   });
   const [finalDiagnosis, setFinalDiagnosis] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat({
+  const {
+    messages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    isLoading,
+    setMessages,
+  } = useChat({
     api: '/api/chat',
     body: {
       currentQuestion: QUESTIONS[currentQuestionIndex],
-      themeResponses
+      themeResponses,
+    },
+    onError: (error) => {
+      console.error('Chat error:', error);
+      setError('Failed to connect to the psychoanalyst. Please try again.');
     },
   });
 
   const resetChat = () => {
-    // Clear all state
-    setCurrentQuestionIndex(0);
-    setThemeResponses({
-      repression: [],
-      deathDrive: [],
-      mirrorStage: [],
-      uncanny: [],
-      fragmentation: []
-    });
-    setFinalDiagnosis(null);
-    setMessages([]);
-    
-    // Clear localStorage
-    localStorage.removeItem('chatMessages');
-    localStorage.removeItem('themeResponses');
-    localStorage.removeItem('currentQuestionIndex');
-    localStorage.removeItem('finalDiagnosis');
+    try {
+      // Clear all state
+      setCurrentQuestionIndex(0);
+      setThemeResponses({
+        repression: [],
+        deathDrive: [],
+        mirrorStage: [],
+        uncanny: [],
+        fragmentation: [],
+      });
+      setFinalDiagnosis(null);
+      setMessages([]);
+      setError(null);
+
+      // Clear localStorage
+      localStorage.removeItem('chatMessages');
+      localStorage.removeItem('themeResponses');
+      localStorage.removeItem('currentQuestionIndex');
+      localStorage.removeItem('finalDiagnosis');
+    } catch (error) {
+      console.error('Error resetting chat:', error);
+      setError('Failed to reset the session. Please refresh the page.');
+    }
   };
 
   // Load messages from localStorage on component mount
@@ -65,7 +92,7 @@ export default function ChatPage() {
       const savedThemeResponses = localStorage.getItem('themeResponses');
       const savedQuestionIndex = localStorage.getItem('currentQuestionIndex');
       const savedDiagnosis = localStorage.getItem('finalDiagnosis');
-      
+
       if (savedMessages) {
         setMessages(JSON.parse(savedMessages));
       }
@@ -80,6 +107,7 @@ export default function ChatPage() {
       }
     } catch (error) {
       console.error('Error loading saved state:', error);
+      setError('Failed to load your previous session. Starting a new one.');
     }
   }, [setMessages]);
 
@@ -88,12 +116,16 @@ export default function ChatPage() {
     try {
       localStorage.setItem('chatMessages', JSON.stringify(messages));
       localStorage.setItem('themeResponses', JSON.stringify(themeResponses));
-      localStorage.setItem('currentQuestionIndex', currentQuestionIndex.toString());
+      localStorage.setItem(
+        'currentQuestionIndex',
+        currentQuestionIndex.toString()
+      );
       if (finalDiagnosis) {
         localStorage.setItem('finalDiagnosis', finalDiagnosis);
       }
     } catch (error) {
       console.error('Error saving state:', error);
+      setError('Failed to save your progress. Your session may not persist.');
     }
   }, [messages, themeResponses, currentQuestionIndex, finalDiagnosis]);
 
@@ -101,39 +133,47 @@ export default function ChatPage() {
     e.preventDefault();
     if (!input.trim()) return;
 
-    // Add the current response to the theme tracking
-    const currentTheme = QUESTIONS[currentQuestionIndex].theme;
-    setThemeResponses(prev => ({
-      ...prev,
-      [currentTheme]: [...prev[currentTheme], input]
-    }));
+    try {
+      // Add the current response to the theme tracking
+      const currentTheme = QUESTIONS[currentQuestionIndex].theme;
+      setThemeResponses((prev) => ({
+        ...prev,
+        [currentTheme]: [...prev[currentTheme], input],
+      }));
 
-    // Get the next question based on the current response
-    const nextQuestion = getNextQuestion(currentTheme, input, themeResponses);
-    
-    if (nextQuestion) {
-      // Update the questions array with the new dynamic question
-      setQuestions(prev => {
-        const newQuestions = [...prev];
-        newQuestions[currentQuestionIndex + 1] = nextQuestion;
-        return newQuestions;
-      });
+      // Get the next question based on the current response
+      const nextQuestion = getNextQuestion(currentTheme, input, themeResponses);
+
+      if (nextQuestion) {
+        // Update the questions array with the new dynamic question
+        setQuestions((prev) => {
+          const newQuestions = [...prev];
+          newQuestions[currentQuestionIndex + 1] = nextQuestion;
+          return newQuestions;
+        });
+      }
+
+      // Move to next question or generate final diagnosis
+      if (currentQuestionIndex < QUESTIONS.length - 1) {
+        setCurrentQuestionIndex((prev) => prev + 1);
+      } else {
+        // Find the dominant theme based on response length
+        const dominantTheme = Object.entries(themeResponses).reduce((a, b) =>
+          a[1].length > b[1].length ? a : b
+        )[0] as PsychoanalyticTheme;
+
+        const diagnosis = generateDiagnosis(
+          dominantTheme,
+          themeResponses[dominantTheme]
+        );
+        setFinalDiagnosis(diagnosis);
+      }
+
+      handleSubmit(e);
+    } catch (error) {
+      console.error('Error submitting message:', error);
+      setError('Failed to process your response. Please try again.');
     }
-
-    // Move to next question or generate final diagnosis
-    if (currentQuestionIndex < QUESTIONS.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1);
-    } else {
-      // Find the dominant theme based on response length
-      const dominantTheme = Object.entries(themeResponses).reduce((a, b) => 
-        a[1].length > b[1].length ? a : b
-      )[0] as PsychoanalyticTheme;
-      
-      const diagnosis = generateDiagnosis(dominantTheme, themeResponses[dominantTheme]);
-      setFinalDiagnosis(diagnosis);
-    }
-
-    handleSubmit(e);
   };
 
   const handleStartChat = () => {
@@ -144,9 +184,13 @@ export default function ChatPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-8 bg-gray-900 text-gray-100">
         <div className="max-w-2xl space-y-8">
-          <h1 className="text-4xl font-bold text-center mb-8">The Echo Chamber</h1>
+          <h1 className="text-4xl font-bold text-center mb-8">
+            The Echo Chamber
+          </h1>
           <div className="prose prose-invert max-w-none">
-            <p className="text-lg leading-relaxed whitespace-pre-line">{INTRODUCTION}</p>
+            <p className="text-lg leading-relaxed whitespace-pre-line">
+              {INTRODUCTION}
+            </p>
           </div>
           <button
             onClick={handleStartChat}
@@ -169,6 +213,11 @@ export default function ChatPage() {
           Reset Session
         </button>
       </div>
+      {error && (
+        <div className="mb-4 p-4 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-100 rounded-lg">
+          {error}
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto mb-4">
         <div className="space-y-4">
           {messages.map((message) => (
@@ -176,26 +225,36 @@ export default function ChatPage() {
           ))}
           {finalDiagnosis && (
             <div className="p-6 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Your Psychoanalytic Diagnosis</h2>
-              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-line">{finalDiagnosis}</p>
+              <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+                Your Psychoanalytic Diagnosis
+              </h2>
+              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                {finalDiagnosis}
+              </p>
             </div>
           )}
         </div>
       </div>
-      
+
       <div className="sticky bottom-0 bg-white dark:bg-gray-900 p-4 border-t">
         {currentQuestionIndex < QUESTIONS.length ? (
           <div className="mb-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
-            <p className="text-lg font-medium mb-2">Question {currentQuestionIndex + 1} of {QUESTIONS.length}</p>
-            <p className="text-gray-700 dark:text-gray-300">{QUESTIONS[currentQuestionIndex].text}</p>
+            <p className="text-lg font-medium mb-2">
+              Question {currentQuestionIndex + 1} of {QUESTIONS.length}
+            </p>
+            <p className="text-gray-700 dark:text-gray-300">
+              {QUESTIONS[currentQuestionIndex].text}
+            </p>
           </div>
         ) : (
           <div className="mb-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
             <p className="text-lg font-medium">Session Complete</p>
-            <p className="text-gray-700 dark:text-gray-300">Your psychoanalytic profile has been prepared.</p>
+            <p className="text-gray-700 dark:text-gray-300">
+              Your psychoanalytic profile has been prepared.
+            </p>
           </div>
         )}
-        
+
         {currentQuestionIndex < QUESTIONS.length && (
           <ChatInput
             input={input}
@@ -207,4 +266,4 @@ export default function ChatPage() {
       </div>
     </div>
   );
-} 
+}

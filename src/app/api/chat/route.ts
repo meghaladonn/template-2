@@ -36,13 +36,26 @@ Remember: Your responses should feel like a dream interpretation session, where 
 
 export async function POST(req: Request) {
   try {
+    console.log('Chat API route called');
     const openai = getOpenAIClient();
     const { messages, currentQuestion, themeResponses } = await req.json();
+
+    console.log('Request data:', {
+      messageCount: messages?.length,
+      hasCurrentQuestion: !!currentQuestion,
+      themeResponses: Object.keys(themeResponses || {}),
+    });
+
+    if (!messages || !Array.isArray(messages)) {
+      throw new Error('Invalid messages format');
+    }
 
     // If this is the last question, generate a final analysis
     if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
       const lastUserMessage = messages[messages.length - 1].content;
-      const theme = currentQuestion.theme as PsychoanalyticTheme;
+      const theme = currentQuestion?.theme as PsychoanalyticTheme;
+
+      console.log('Generating analysis for theme:', theme);
 
       const response = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
@@ -65,6 +78,7 @@ export async function POST(req: Request) {
     }
 
     // For regular responses
+    console.log('Generating regular response');
     const response = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       stream: true,
@@ -77,9 +91,18 @@ export async function POST(req: Request) {
     return new StreamingTextResponse(stream);
   } catch (error) {
     console.error('Error in chat route:', error);
+    // Return a more detailed error response
     return new Response(
-      JSON.stringify({ error: 'Failed to process chat request' }),
-      { status: 500 }
+      JSON.stringify({
+        error: 'Failed to process chat request',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      }),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
     );
   }
 }
